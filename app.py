@@ -1,3 +1,7 @@
+# Wikipwdiaから短歌っぽいフレーズを探すスクリプト。
+# URLではなく記事名を入力して、その本文をAPIで取る。
+# 57577のリズムに近いフレーズをスコア化して上位20件を表示する。
+
 import re
 import requests
 import streamlit as st
@@ -100,11 +104,59 @@ def count_mora(reading: str) -> int:
         count += 1
     return count
 
+
 def contains_alnum(text: str) -> bool:
     """半角・全角の英数字を含むかどうか"""
     return re.search(r"[A-Za-z0-9０-９Ａ-Ｚａ-ｚ]", text) is not None
 
-def find_tanka_like_candidates(candidates: list[str]) -> list[tuple[str, str, int]]:
+
+def score_tanka_pattern(reading: str) -> tuple[int, tuple[int, int, int, int, int]]:
+    """読みから 5-7-5-7-7 への近さをスコア化する。
+    戻り値: (score, (句1, 句2, 句3, 句4, 句5))
+    score が小さいほど短歌っぽい。
+    """
+    mora_text = re.sub(r"[^ぁ-んー]", "", reading)
+    n = count_mora(mora_text)
+
+    if n < 5:
+        return 10**9, (0, 0, 0, 0, 0)
+
+    best_score = 10**9
+    best_pattern = (0, 0, 0, 0, 0)
+
+    # k1, k2, k3, k4 は各句の終端位置（モーラ単位）
+    for k1 in range(1, n - 3):
+        for k2 in range(k1 + 1, n - 2):
+            for k3 in range(k2 + 1, n - 1):
+                for k4 in range(k3 + 1, n):
+                    p1 = k1
+                    p2 = k2 - k1
+                    p3 = k3 - k2
+                    p4 = k4 - k3
+                    p5 = n - k4
+
+                    score = (
+                        abs(p1 - 5)
+                        + abs(p2 - 7)
+                        + abs(p3 - 5)
+                        + abs(p4 - 7)
+                        + abs(p5 - 7)
+                    )
+
+                    # 極端に短い句・長い句を軽く罰する
+                    if min(p1, p2, p3, p4, p5) <= 2:
+                        score += 3
+                    if max(p1, p2, p3, p4, p5) >= 10:
+                        score += 3
+
+                    if score < best_score:
+                        best_score = score
+                        best_pattern = (p1, p2, p3, p4, p5)
+
+    return best_score, best_pattern
+
+
+def find_tanka_like_candidates(candidates: list[str]) -> list[tuple[str, str, int, int, tuple[int, int, int, int, int]]]:
     results = []
     seen = set()
 
@@ -112,21 +164,30 @@ def find_tanka_like_candidates(candidates: list[str]) -> list[tuple[str, str, in
         if cand in seen:
             continue
         seen.add(cand)
-        
+
         # 英数字を含む候補は除外
         if contains_alnum(cand):
             continue
-        
+
         reading = to_reading(cand)
         mora = count_mora(reading)
-        if 26 <= mora <= 36:
-            results.append((cand, reading, mora))
 
-    results.sort(key=lambda x: (abs(x[2] - 31), x[2], x[0]))
+        # まず総音数で粗く絞る
+        if not (26 <= mora <= 36):
+            continue
+
+        score, pattern = score_tanka_pattern(reading)
+
+        # 5-7-5-7-7 からのズレが大きすぎる候補は除外
+        if score <= 4:
+            results.append((cand, reading, mora, score, pattern))
+
+    # 57577 に近い順 → 31 に近い順 → 文字列順
+    results.sort(key=lambda x: (x[3], abs(x[2] - 31), x[2], x[0]))
     return results[:20]
 
 
-def run_search(title: str) -> list[tuple[str, str, int]]:
+def run_search(title: str) -> list[tuple[str, str, int, int, tuple[int, int, int, int, int]]]:
     text = fetch_wikipedia_text(title)
     candidates = split_candidates(text)
     return find_tanka_like_candidates(candidates)
@@ -213,13 +274,15 @@ if submitted:
 
         if results:
             st.subheader("短歌っぽい候補 上位20件")
-            for i, (cand, reading, mora) in enumerate(results, start=1):
+            for i, (cand, reading, mora, score, pattern) in enumerate(results, start=1):
                 st.markdown(
                     f'''
                     <div class="result-card">
                         <div class="cand">[{i}] {cand}</div>
                         <div class="meta">よみ: {reading}</div>
                         <div class="meta">音数: {mora}</div>
+                        <div class="meta">57577からのズレ: {score}</div>
+                        <div class="meta">句割れ推定: {pattern[0]}-{pattern[1]}-{pattern[2]}-{pattern[3]}-{pattern[4]}</div>
                     </div>
                     ''',
                     unsafe_allow_html=True,
