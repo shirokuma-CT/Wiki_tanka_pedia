@@ -100,6 +100,9 @@ def count_mora(reading: str) -> int:
         count += 1
     return count
 
+def contains_alnum(text: str) -> bool:
+    """半角・全角の英数字を含むかどうか"""
+    return re.search(r"[A-Za-z0-9０-９Ａ-Ｚａ-ｚ]", text) is not None
 
 def find_tanka_like_candidates(candidates: list[str]) -> list[tuple[str, str, int]]:
     results = []
@@ -109,7 +112,11 @@ def find_tanka_like_candidates(candidates: list[str]) -> list[tuple[str, str, in
         if cand in seen:
             continue
         seen.add(cand)
-
+        
+        # 英数字を含む候補は除外
+        if contains_alnum(cand):
+            continue
+        
         reading = to_reading(cand)
         mora = count_mora(reading)
         if 26 <= mora <= 36:
