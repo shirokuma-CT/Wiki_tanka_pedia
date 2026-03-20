@@ -171,6 +171,73 @@ def score_tanka_pattern(reading: str) -> tuple[int, tuple[int, int, int, int, in
 
     return best_score, best_pattern
 
+def tokenize_candidate(text: str) -> list[dict]:
+    """候補文字列をトークンごとに分け、表示用の情報を作る。"""
+    units = []
+    for token in tokenizer.tokenize(text):
+        surface = token.surface
+        if not surface.strip():
+            continue
+
+        reading = token.reading
+        if reading == "*":
+            reading = surface
+        reading = katakana_to_hiragana(reading)
+        mora = count_mora(reading)
+
+        units.append({
+            "surface": surface,
+            "reading": reading,
+            "mora": mora,
+        })
+
+    return units
+
+
+def insert_spaces_by_pattern(text: str, pattern: tuple[int, int, int, int, int]) -> str:
+    """推定句割れに合わせて、元の候補文字列にスペースを挿入する。"""
+    units = tokenize_candidate(text)
+    if not units:
+        return text
+
+    targets = [
+        pattern[0],
+        pattern[0] + pattern[1],
+        pattern[0] + pattern[1] + pattern[2],
+        pattern[0] + pattern[1] + pattern[2] + pattern[3],
+    ]
+
+    cumulative_positions = []
+    total = 0
+    for i, unit in enumerate(units, start=1):
+        total += unit["mora"]
+        cumulative_positions.append((i, total))
+
+    break_positions = []
+    last_pos = 0
+    for target in targets:
+        best_pos = None
+        best_diff = 10**9
+
+        for pos, cum in cumulative_positions:
+            if pos <= last_pos:
+                continue
+            diff = abs(cum - target)
+            if diff < best_diff:
+                best_diff = diff
+                best_pos = pos
+
+        if best_pos is not None:
+            break_positions.append(best_pos)
+            last_pos = best_pos
+
+    parts = []
+    for i, unit in enumerate(units, start=1):
+        parts.append(unit["surface"])
+        if i in break_positions:
+            parts.append(" ")
+
+    return " ".join("".join(parts).split())
 
 def find_tanka_like_candidates(candidates: list[str]) -> list[tuple[str, str, int, int, tuple[int, int, int, int, int]]]:
     results = []
@@ -294,10 +361,11 @@ if submitted:
                 st.markdown(
                     f'''
                     <div class="result-card">
-                        <div class="cand">[{i}] {cand}</div>
+                        <div class="cand">[{i}] {insert_spaces_by_pattern(cand, pattern)}</div>
+                        <div class="meta">元の候補: {cand}</div>
                         <div class="meta">よみ: {reading}</div>
                         <div class="meta">音数: {mora}</div>
-                        <div class="meta">57577からのズレ: {score}</div>
+                        <div class="meta">57577スコア(小さいほど良い): {score}</div>
                         <div class="meta">句割れ推定: {pattern[0]}-{pattern[1]}-{pattern[2]}-{pattern[3]}-{pattern[4]}</div>
                     </div>
                     ''',
