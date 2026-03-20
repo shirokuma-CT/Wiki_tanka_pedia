@@ -1,6 +1,7 @@
-# Wikipwdiaから短歌っぽいフレーズを探すスクリプト。
+    # Wikipwdiaから短歌っぽいフレーズを探すスクリプト。
 # URLではなく記事名を入力して、その本文をAPIで取る。
 # 57577のリズムに近いフレーズをスコア化して上位20件を表示する。
+# 字足らずは重めに、字余りは軽めに罰する。
 
 import re
 import requests
@@ -109,6 +110,21 @@ def contains_alnum(text: str) -> bool:
     """半角・全角の英数字を含むかどうか"""
     return re.search(r"[A-Za-z0-9０-９Ａ-Ｚａ-ｚ]", text) is not None
 
+def phrase_penalty(actual: int, target: int) -> int:
+    """句ごとの罰点を計算する関数。字足らずを字余りより重く評価する。
+    次のscore_tanka_pattern()の中で使う。
+    """
+    diff = actual - target
+    # 字足らずを重めに減点、特に第1句は厳しめ。
+    if diff < 0:
+        shortage = -diff
+        if target == 5:
+            return shortage * 4
+        else:
+            return shortage * 3
+
+    # 字余りは軽めに減点
+    return diff
 
 def score_tanka_pattern(reading: str) -> tuple[int, tuple[int, int, int, int, int]]:
     """読みから 5-7-5-7-7 への近さをスコア化する。
@@ -136,11 +152,11 @@ def score_tanka_pattern(reading: str) -> tuple[int, tuple[int, int, int, int, in
                     p5 = n - k4
 
                     score = (
-                        abs(p1 - 5)
-                        + abs(p2 - 7)
-                        + abs(p3 - 5)
-                        + abs(p4 - 7)
-                        + abs(p5 - 7)
+                        phrase_penalty(p1, 5)
+                        + phrase_penalty(p2, 7)
+                        + phrase_penalty(p3, 5)
+                        + phrase_penalty(p4, 7)
+                        + phrase_penalty(p5, 7)
                     )
 
                     # 極端に短い句・長い句を軽く罰する
